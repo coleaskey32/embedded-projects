@@ -1,5 +1,4 @@
 /* USER CODE BEGIN Header */
-#include "app.h"
 /**
   ******************************************************************************
   * @file           : main.c
@@ -23,7 +22,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "app.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
