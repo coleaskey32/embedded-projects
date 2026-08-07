@@ -20,7 +20,7 @@ static uint32_t ReadAdcChannel(ADC_HandleTypeDef* hadc, uint32_t channel)
 
     HAL_ADC_Start(hadc);
     HAL_ADC_PollForConversion(hadc, 10);
-    uint32_t value = HAL_ADC_GetValue(hadc);
+    const uint32_t value = HAL_ADC_GetValue(hadc);
     HAL_ADC_Stop(hadc);
 
     return value;
@@ -43,12 +43,12 @@ void App_Init(TIM_HandleTypeDef* timer)
 
 void App_Run(void)
 {
-    uint32_t pa7 = ReadAdcChannel(&hadc2, ADC_CHANNEL_4);  // ADC2_IN4
-    uint32_t pa8 = ReadAdcChannel(&hadc5, ADC_CHANNEL_1);  // ADC5_IN1
-    uint32_t pa9 = ReadAdcChannel(&hadc5, ADC_CHANNEL_2);  // ADC5_IN2
+    const uint32_t pa7 = ReadAdcChannel(&hadc2, ADC_CHANNEL_4);  // ADC2_IN4
+    const uint32_t pa8 = ReadAdcChannel(&hadc5, ADC_CHANNEL_1);  // ADC5_IN1
+    const uint32_t pa9 = ReadAdcChannel(&hadc5, ADC_CHANNEL_2);  // ADC5_IN2
 
     char msg[80];
-    int len = snprintf(msg, sizeof(msg),
+    const int len = snprintf(msg, sizeof(msg),
                        "PA7: %4lu  PA8: %4lu  PA9: %4lu\r\n",
                        static_cast<unsigned long>(pa7),
                        static_cast<unsigned long>(pa8),
