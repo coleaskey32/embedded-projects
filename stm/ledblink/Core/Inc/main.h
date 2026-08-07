@@ -44,7 +44,8 @@ extern "C" {
 
 /* Exported constants --------------------------------------------------------*/
 /* USER CODE BEGIN EC */
-
+extern ADC_HandleTypeDef hadc2;
+extern ADC_HandleTypeDef hadc5;
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/
