@@ -44,12 +44,15 @@ void App_Init(TIM_HandleTypeDef* timer)
 void App_Run(void)
 {
     const uint32_t pa7 = ReadAdcChannel(&hadc2, ADC_CHANNEL_4);  // ADC2_IN4
+    const uint32_t pc4 = ReadAdcChannel(&hadc2, ADC_CHANNEL_5);  // ADC2_IN5
     const uint32_t pa8 = ReadAdcChannel(&hadc5, ADC_CHANNEL_1);  // ADC5_IN1
     const uint32_t pa9 = ReadAdcChannel(&hadc5, ADC_CHANNEL_2);  // ADC5_IN2
 
+
     char msg[80];
     const int len = snprintf(msg, sizeof(msg),
-                       "PA7: %4lu  PA8: %4lu  PA9: %4lu\r\n",
+                       "PC4: %4lu PA7: %4lu  PA8: %4lu  PA9: %4lu\r\n",
+                       static_cast<unsigned long>(pc4),
                        static_cast<unsigned long>(pa7),
                        static_cast<unsigned long>(pa8),
                        static_cast<unsigned long>(pa9));
