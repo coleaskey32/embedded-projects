@@ -1,5 +1,4 @@
 #include "app.h"
-#include "usbd_cdc_if.h"
 
 static TIM_HandleTypeDef* pwmTimer = nullptr;
 
@@ -18,8 +17,9 @@ void App_Init(TIM_HandleTypeDef* timer)
 
 void App_Run(void)
 {
-    static uint8_t TxBuffer[] = "Hello World! From STM32 USB CDC Device To Virtual COM Port\r\n";
+    static uint8_t TxBuffer[] = "Hello World! From STM32 over the ST-LINK Virtual COM Port\r\n";
 
-    CDC_Transmit_FS(TxBuffer, sizeof(TxBuffer) - 1);
+    /* hcom_uart[COM1] is LPUART1, wired to the ST-LINK VCP; main.c ran BSP_COM_Init */
+    HAL_UART_Transmit(&hcom_uart[COM1], TxBuffer, sizeof(TxBuffer) - 1, HAL_MAX_DELAY);
     HAL_Delay(100);
 }
