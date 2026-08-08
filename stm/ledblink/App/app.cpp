@@ -42,7 +42,25 @@ static void ReportEncoderHealth()
 {
     if (!encoder.IsPresent())
     {
-        Print("AS5600: no ACK - check SDA/SCL wiring and 3V3 power\r\n");
+        Print("AS5600: no ACK at 0x36 - scanning bus...\r\n");
+
+        uint8_t found[8] = {};
+        const uint8_t count = encoder.ScanBus(found, sizeof(found));
+
+        if (count == 0)
+        {
+            Print("  bus empty - check SCL/SDA wiring, 3V3 power, and GND\r\n");
+        }
+        else
+        {
+            char msg[64];
+            for (uint8_t i = 0; i < count; ++i)
+            {
+                snprintf(msg, sizeof(msg), "  device found at 0x%02X\r\n",
+                         static_cast<unsigned>(found[i]));
+                Print(msg);
+            }
+        }
         return;
     }
 
@@ -114,6 +132,21 @@ void App_Run(void)
     else
     {
         len += snprintf(msg + len, sizeof(msg) - len, "  ENC: ----\r\n");
+    }
+
+    /* A failed read scrolls past too fast to diagnose, so re-probe the bus
+     * every few seconds while it stays broken. */
+    static uint32_t failedReads = 0;
+    if (angleValid)
+    {
+        failedReads = 0;
+    }
+    else if ((failedReads++ % 20U) == 0U)
+    {
+        HAL_UART_Transmit(&hcom_uart[COM1], reinterpret_cast<uint8_t*>(msg), len, 1000);
+        ReportEncoderHealth();
+        HAL_Delay(100);
+        return;
     }
 
     HAL_UART_Transmit(&hcom_uart[COM1], reinterpret_cast<uint8_t*>(msg), len, 1000);

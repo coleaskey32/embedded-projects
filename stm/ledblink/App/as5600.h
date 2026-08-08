@@ -19,6 +19,11 @@ public:
     /* Probes for an ACK without reading anything. */
     bool IsPresent() const;
 
+    /* Walks every valid 7-bit address and records the ones that answer, which
+     * separates "nothing on the bus at all" from "device at an address other
+     * than the one this driver targets". Returns how many were found. */
+    uint8_t ScanBus(uint8_t* found, uint8_t maxFound) const;
+
     /* 0..4095 over a full turn, after the zero position and angular range
      * settings are applied. ReadRawAngle() skips that scaling. */
     bool ReadAngle(uint16_t& counts) const;

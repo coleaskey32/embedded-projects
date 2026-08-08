@@ -5,6 +5,23 @@ bool AS5600::IsPresent() const
     return HAL_I2C_IsDeviceReady(bus_, kDeviceAddress, 3, kTimeoutMs) == HAL_OK;
 }
 
+uint8_t AS5600::ScanBus(uint8_t* found, uint8_t maxFound) const
+{
+    uint8_t count = 0;
+
+    /* 7-bit addresses 0x08..0x77; the rest are reserved by the I2C spec. */
+    for (uint8_t address = 0x08; address <= 0x77 && count < maxFound; ++address)
+    {
+        if (HAL_I2C_IsDeviceReady(bus_, static_cast<uint16_t>(address << 1),
+                                  1, 2) == HAL_OK)
+        {
+            found[count++] = address;
+        }
+    }
+
+    return count;
+}
+
 bool AS5600::ReadRegister8(uint8_t reg, uint8_t& value) const
 {
     return HAL_I2C_Mem_Read(bus_, kDeviceAddress, reg, I2C_MEMADD_SIZE_8BIT,
