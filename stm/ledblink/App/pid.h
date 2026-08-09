@@ -16,17 +16,20 @@
 class Pid
 {
 public:
+    /* this-> is load bearing here: the parameters share their names with the
+     * members, so a bare kp = kp would assign the parameter to itself and the
+     * gains would silently stay at zero. */
     void SetGains(float kp, float ki, float kd)
     {
-        kp_ = kp;
-        ki_ = ki;
-        kd_ = kd;
+        this->kp = kp;
+        this->ki = ki;
+        this->kd = kd;
     }
 
     void SetOutputLimits(float minimum, float maximum)
     {
-        outputMin_ = minimum;
-        outputMax_ = maximum;
+        outputMin = minimum;
+        outputMax = maximum;
     }
 
     /* For quantities where the error really is just setpoint minus
@@ -48,17 +51,17 @@ public:
      * moment control resumes. */
     void Reset();
 
-    float Integral() const { return integral_; }
+    float Integral() const { return integral; }
 
 private:
-    float kp_ = 0.0f;
-    float ki_ = 0.0f;
-    float kd_ = 0.0f;
+    float kp = 0.0f;
+    float ki = 0.0f;
+    float kd = 0.0f;
 
-    float integral_ = 0.0f;
-    float previousMeasurement_ = 0.0f;
-    bool hasHistory_ = false;
+    float integral = 0.0f;
+    float previousMeasurement = 0.0f;
+    bool hasHistory = false;
 
-    float outputMin_ = -1.0f;
-    float outputMax_ = 1.0f;
+    float outputMin = -1.0f;
+    float outputMax = 1.0f;
 };

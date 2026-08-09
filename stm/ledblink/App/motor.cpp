@@ -2,21 +2,21 @@
 
 void MotorDriver::Begin()
 {
-    period_ = __HAL_TIM_GET_AUTORELOAD(timer_);
+    period = __HAL_TIM_GET_AUTORELOAD(timer);
 
-    __HAL_TIM_SET_COMPARE(timer_, forwardChannel_, 0);
-    __HAL_TIM_SET_COMPARE(timer_, reverseChannel_, 0);
+    __HAL_TIM_SET_COMPARE(timer, forwardChannel, 0);
+    __HAL_TIM_SET_COMPARE(timer, reverseChannel, 0);
 
-    HAL_TIM_PWM_Start(timer_, forwardChannel_);
-    HAL_TIM_PWM_Start(timer_, reverseChannel_);
+    HAL_TIM_PWM_Start(timer, forwardChannel);
+    HAL_TIM_PWM_Start(timer, reverseChannel);
 }
 
 void MotorDriver::SetDuty(uint32_t channel, float duty)
 {
-    /* period_ + 1 counts make a full cycle, so scaling by period_ + 1 lets a
+    /* period + 1 counts make a full cycle, so scaling by period + 1 lets a
      * duty of 1.0 reach a compare value the counter never exceeds. */
-    const uint32_t compare = static_cast<uint32_t>(duty * static_cast<float>(period_ + 1));
-    __HAL_TIM_SET_COMPARE(timer_, channel, compare);
+    const uint32_t compare = static_cast<uint32_t>(duty * static_cast<float>(period + 1));
+    __HAL_TIM_SET_COMPARE(timer, channel, compare);
 }
 
 void MotorDriver::SetCommand(float command)
@@ -32,13 +32,13 @@ void MotorDriver::SetCommand(float command)
 
     if (command > 0.0f)
     {
-        SetDuty(reverseChannel_, 0.0f);
-        SetDuty(forwardChannel_, command);
+        SetDuty(reverseChannel, 0.0f);
+        SetDuty(forwardChannel, command);
     }
     else if (command < 0.0f)
     {
-        SetDuty(forwardChannel_, 0.0f);
-        SetDuty(reverseChannel_, -command);
+        SetDuty(forwardChannel, 0.0f);
+        SetDuty(reverseChannel, -command);
     }
     else
     {
@@ -48,6 +48,6 @@ void MotorDriver::SetCommand(float command)
 
 void MotorDriver::Coast()
 {
-    SetDuty(forwardChannel_, 0.0f);
-    SetDuty(reverseChannel_, 0.0f);
+    SetDuty(forwardChannel, 0.0f);
+    SetDuty(reverseChannel, 0.0f);
 }

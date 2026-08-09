@@ -13,7 +13,7 @@ class MotorDriver
 {
 public:
     MotorDriver(TIM_HandleTypeDef* timer, uint32_t forwardChannel, uint32_t reverseChannel)
-        : timer_(timer), forwardChannel_(forwardChannel), reverseChannel_(reverseChannel)
+        : timer(timer), forwardChannel(forwardChannel), reverseChannel(reverseChannel)
     {
     }
 
@@ -30,11 +30,11 @@ public:
 private:
     void SetDuty(uint32_t channel, float duty);
 
-    TIM_HandleTypeDef* timer_;
-    uint32_t forwardChannel_;
-    uint32_t reverseChannel_;
+    TIM_HandleTypeDef* timer;
+    uint32_t forwardChannel;
+    uint32_t reverseChannel;
 
     /* Read from the timer at Begin() so the duty scaling follows whatever
      * period CubeMX generated instead of assuming one. */
-    uint32_t period_ = 0;
+    uint32_t period = 0;
 };

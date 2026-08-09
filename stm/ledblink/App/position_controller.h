@@ -18,15 +18,15 @@ class PositionController
 {
 public:
     explicit PositionController(int32_t countsPerRev)
-        : countsPerRev_(countsPerRev)
+        : countsPerRev(countsPerRev)
     {
     }
 
-    void SetGains(float kp, float ki, float kd) { pid_.SetGains(kp, ki, kd); }
-    void SetOutputLimits(float minimum, float maximum) { pid_.SetOutputLimits(minimum, maximum); }
+    void SetGains(float kp, float ki, float kd) { pid.SetGains(kp, ki, kd); }
+    void SetOutputLimits(float minimum, float maximum) { pid.SetOutputLimits(minimum, maximum); }
 
-    void SetTarget(uint16_t counts) { targetCounts_ = counts; }
-    uint16_t Target() const { return targetCounts_; }
+    void SetTarget(uint16_t counts) { targetCounts = counts; }
+    uint16_t Target() const { return targetCounts; }
 
     /* Returns the motor command, -1 to +1. */
     float Update(uint16_t measuredCounts, float dt);
@@ -39,13 +39,13 @@ private:
     /* Folds a count difference into -half..+half of a revolution. */
     int32_t ShortestPath(int32_t delta) const;
 
-    Pid pid_;
-    int32_t countsPerRev_;
+    Pid pid;
+    int32_t countsPerRev;
 
-    uint16_t targetCounts_ = 0;
+    uint16_t targetCounts = 0;
 
     /* Running total that keeps counting past a wrap instead of jumping. */
-    int32_t continuousCounts_ = 0;
-    uint16_t previousCounts_ = 0;
-    bool hasPrevious_ = false;
+    int32_t continuousCounts = 0;
+    uint16_t previousCounts = 0;
+    bool hasPrevious = false;
 };
