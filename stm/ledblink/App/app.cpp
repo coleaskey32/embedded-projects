@@ -1,17 +1,67 @@
 #include "app.h"
 #include "as5600.h"
+#include "motor.h"
+#include "pid.h"
 
 #include <cstdio>
 #include <cstring>
 
-static TIM_HandleTypeDef* pwmTimer = nullptr;
-static AS5600 encoder(&hi2c1);
+namespace
+{
+
+/* --- Hardware map -------------------------------------------------------
+ * TIM1_CH1 (PC0) is RPWM, TIM1_CH2 (PC1) is LPWM.
+ * Pots: PA7 = setpoint, PC4 = Kp, PA8 = Ki, PA9 = Kd. */
+constexpr uint32_t kForwardChannel = TIM_CHANNEL_1;
+constexpr uint32_t kReverseChannel = TIM_CHANNEL_2;
+
+constexpr uint32_t kAdcFullScale = 4095;
+
+/* --- Loop rates ---------------------------------------------------------
+ * Control runs fast and fixed because the PID depends on a steady dt; the
+ * pots and the serial log run slowly because nothing needs them faster. */
+constexpr uint32_t kControlPeriodMs = 1;
+constexpr uint32_t kTuningPeriodMs  = 50;
+constexpr uint32_t kPrintPeriodMs   = 100;
+
+/* --- Encoder ------------------------------------------------------------ */
+constexpr int32_t kCountsPerRev = 4096;
+constexpr float   kHalfRev      = kCountsPerRev / 2.0f;
+
+/* Consecutive failed encoder reads before the loop gives up and disarms.
+ * Holding a motor command against a dead sensor is how things get broken. */
+constexpr uint32_t kMaxEncoderFailures = 10;
+
+/* --- Gain ranges --------------------------------------------------------
+ * Each pot sweeps its gain from zero to the value below. Error is normalised
+ * to +/-1 over half a turn before it reaches the PID, so these are unitless
+ * and stay in a sane range whatever the mechanics do. */
+constexpr float kMaxKp = 8.0f;
+constexpr float kMaxKi = 4.0f;
+constexpr float kMaxKd = 0.5f;
+
+MotorDriver motor(&htim1, kForwardChannel, kReverseChannel);
+AS5600 encoder(&hi2c1);
+Pid pid;
+
+/* Both are touched by the button ISR as well as the control loop. */
+volatile bool armed = false;
+volatile bool encoderHealthy = false;
+
+uint16_t setpointCounts = 0;
+float gainKp = 0.0f;
+float gainKi = 0.0f;
+float gainKd = 0.0f;
+
+uint16_t measuredCounts = 0;
+float lastCommand = 0.0f;
+uint32_t encoderFailures = 0;
 
 /* Selects `channel` as the single regular-sequence entry, then does one
  * blocking conversion. Needed because CubeMX generated both ADCs with a
  * one-slot sequence, so reading ADC5_IN1 and ADC5_IN2 means re-pointing
  * the slot between reads. */
-static uint32_t ReadAdcChannel(ADC_HandleTypeDef* hadc, uint32_t channel)
+uint32_t ReadAdcChannel(ADC_HandleTypeDef* hadc, uint32_t channel)
 {
     ADC_ChannelConfTypeDef sConfig = {};
     sConfig.Channel = channel;
@@ -29,7 +79,7 @@ static uint32_t ReadAdcChannel(ADC_HandleTypeDef* hadc, uint32_t channel)
     return value;
 }
 
-static void Print(const char* text)
+void Print(const char* text)
 {
     HAL_UART_Transmit(&hcom_uart[COM1],
                       reinterpret_cast<uint8_t*>(const_cast<char*>(text)),
@@ -38,11 +88,29 @@ static void Print(const char* text)
 
 /* Reports what the encoder sees of its magnet, which separates a wiring
  * problem from a magnet placement problem on the first boot. */
-static void ReportEncoderHealth()
+void ReportEncoderHealth()
 {
     if (!encoder.IsPresent())
     {
-        Print("AS5600: no ACK - check SDA/SCL wiring and 3V3 power\r\n");
+        Print("AS5600: no ACK at 0x36 - scanning bus...\r\n");
+
+        uint8_t found[8] = {};
+        const uint8_t count = encoder.ScanBus(found, sizeof(found));
+
+        if (count == 0)
+        {
+            Print("  bus empty - check SCL/SDA wiring, 3V3 power, and GND\r\n");
+        }
+        else
+        {
+            char msg[64];
+            for (uint8_t i = 0; i < count; ++i)
+            {
+                snprintf(msg, sizeof(msg), "  device found at 0x%02X\r\n",
+                         static_cast<unsigned>(found[i]));
+                Print(msg);
+            }
+        }
         return;
     }
 
@@ -64,49 +132,185 @@ static void ReportEncoderHealth()
     Print(msg);
 }
 
+/* Shortest signed distance from measurement to setpoint. Without the wrap the
+ * controller would drive the long way round whenever the target sits across
+ * the encoder's zero crossing. */
+float PositionError(uint16_t setpoint, uint16_t measurement)
+{
+    int32_t error = static_cast<int32_t>(setpoint) - static_cast<int32_t>(measurement);
+
+    if (error > kCountsPerRev / 2)
+    {
+        error -= kCountsPerRev;
+    }
+    else if (error < -kCountsPerRev / 2)
+    {
+        error += kCountsPerRev;
+    }
+
+    return static_cast<float>(error) / kHalfRev;
+}
+
+void ReadTuningInputs()
+{
+    const uint32_t setpointPot = ReadAdcChannel(&hadc2, ADC_CHANNEL_4);  // PA7
+    const uint32_t kpPot       = ReadAdcChannel(&hadc2, ADC_CHANNEL_5);  // PC4
+    const uint32_t kiPot       = ReadAdcChannel(&hadc5, ADC_CHANNEL_1);  // PA8
+    const uint32_t kdPot       = ReadAdcChannel(&hadc5, ADC_CHANNEL_2);  // PA9
+
+    /* The pot spans the same 0..4095 range as the encoder, so the setpoint
+     * maps straight across without scaling. */
+    setpointCounts = static_cast<uint16_t>(setpointPot);
+
+    gainKp = (static_cast<float>(kpPot) / kAdcFullScale) * kMaxKp;
+    gainKi = (static_cast<float>(kiPot) / kAdcFullScale) * kMaxKi;
+    gainKd = (static_cast<float>(kdPot) / kAdcFullScale) * kMaxKd;
+
+    pid.SetGains(gainKp, gainKi, gainKd);
+}
+
+void RunControlStep(float dt)
+{
+    uint16_t angleCounts = 0;
+    if (!encoder.ReadAngle(angleCounts))
+    {
+        if (encoderFailures < kMaxEncoderFailures)
+        {
+            ++encoderFailures;
+        }
+
+        if (encoderFailures >= kMaxEncoderFailures)
+        {
+            encoderHealthy = false;
+            armed = false;
+            motor.Coast();
+            pid.Reset();
+            lastCommand = 0.0f;
+        }
+        return;
+    }
+
+    encoderFailures = 0;
+    encoderHealthy = true;
+    measuredCounts = angleCounts;
+
+    if (!armed)
+    {
+        motor.Coast();
+        pid.Reset();
+        lastCommand = 0.0f;
+        return;
+    }
+
+    const float error = PositionError(setpointCounts, measuredCounts);
+    const float measurement = static_cast<float>(measuredCounts) / kHalfRev;
+
+    lastCommand = pid.Update(error, measurement, dt);
+    motor.SetCommand(lastCommand);
+}
+
+void PrintStatus()
+{
+    /* Gains print as thousandths because nano.specs leaves float support out
+     * of printf; the same trick keeps the command in per-mille. */
+    char msg[160];
+    const int len = snprintf(
+        msg, sizeof(msg),
+        "%s SP:%4u POS:%4u CMD:%5d  Kp:%4lu Ki:%4lu Kd:%4lu%s\r\n",
+        armed ? "RUN " : "STOP",
+        static_cast<unsigned>(setpointCounts),
+        static_cast<unsigned>(measuredCounts),
+        static_cast<int>(lastCommand * 1000.0f),
+        static_cast<unsigned long>(gainKp * 1000.0f),
+        static_cast<unsigned long>(gainKi * 1000.0f),
+        static_cast<unsigned long>(gainKd * 1000.0f),
+        encoderHealthy ? "" : "  ENC FAULT");
+
+    HAL_UART_Transmit(&hcom_uart[COM1], reinterpret_cast<uint8_t*>(msg), len, 1000);
+}
+
+}  // namespace
+
+/* Overrides the BSP's weak handler; the EXTI chain for the blue user button
+ * is already wired up by BSP_PB_Init(). */
+extern "C" void BSP_PB_Callback(Button_TypeDef Button)
+{
+    if (Button != BUTTON_USER)
+    {
+        return;
+    }
+
+    /* Refuse to arm against an encoder that is not reporting. */
+    if (!armed && !encoderHealthy)
+    {
+        return;
+    }
+
+    armed = !armed;
+}
+
 void App_Init()
 {
     HAL_ADCEx_Calibration_Start(&hadc2, ADC_SINGLE_ENDED);
     HAL_ADCEx_Calibration_Start(&hadc5, ADC_SINGLE_ENDED);
 
+    motor.Begin();
+    motor.Coast();
+
+    pid.SetOutputLimits(-1.0f, 1.0f);
+    pid.Reset();
+
     ReportEncoderHealth();
+    ReadTuningInputs();
+
+    /* Seed the health flag so the first button press can arm. */
+    uint16_t angleCounts = 0;
+    encoderHealthy = encoder.ReadAngle(angleCounts);
+    if (encoderHealthy)
+    {
+        measuredCounts = angleCounts;
+    }
+
+    Print("Press the blue user button to arm/disarm the motor.\r\n");
 }
 
 void App_Run(void)
 {
-    const uint32_t pa7 = ReadAdcChannel(&hadc2, ADC_CHANNEL_4);  // ADC2_IN4
-    const uint32_t pc4 = ReadAdcChannel(&hadc2, ADC_CHANNEL_5);  // ADC2_IN5
-    const uint32_t pa8 = ReadAdcChannel(&hadc5, ADC_CHANNEL_1);  // ADC5_IN1
-    const uint32_t pa9 = ReadAdcChannel(&hadc5, ADC_CHANNEL_2);  // ADC5_IN2
+    static uint32_t nextControlTick = 0;
+    static uint32_t lastControlTick = 0;
+    static uint32_t nextTuningTick = 0;
+    static uint32_t nextPrintTick = 0;
 
+    const uint32_t now = HAL_GetTick();
 
-    uint16_t angleCounts = 0;
-    const bool angleValid = encoder.ReadAngle(angleCounts);
-
-    char msg[128];
-    int len = snprintf(msg, sizeof(msg),
-                       "PC4: %4lu PA7: %4lu  PA8: %4lu  PA9: %4lu",
-                       static_cast<unsigned long>(pc4),
-                       static_cast<unsigned long>(pa7),
-                       static_cast<unsigned long>(pa8),
-                       static_cast<unsigned long>(pa9));
-
-    if (angleValid)
+    if (static_cast<int32_t>(now - nextControlTick) >= 0)
     {
-        /* 4096 counts per turn; the tenths come from integer math so the
-         * build keeps its no-float printf. */
-        const uint32_t deciDegrees = (static_cast<uint32_t>(angleCounts) * 3600U) / 4096U;
-        len += snprintf(msg + len, sizeof(msg) - len,
-                        "  ENC: %4u (%lu.%lu deg)\r\n",
-                        static_cast<unsigned>(angleCounts),
-                        static_cast<unsigned long>(deciDegrees / 10U),
-                        static_cast<unsigned long>(deciDegrees % 10U));
-    }
-    else
-    {
-        len += snprintf(msg + len, sizeof(msg) - len, "  ENC: ----\r\n");
+        nextControlTick = now + kControlPeriodMs;
+
+        /* Measured rather than assumed: the blocking serial write below steals
+         * several milliseconds every print, and feeding the PID a dt it did
+         * not actually wait would distort the I and D terms each time. */
+        const uint32_t elapsed = now - lastControlTick;
+        lastControlTick = now;
+
+        RunControlStep(static_cast<float>(elapsed) / 1000.0f);
     }
 
-    HAL_UART_Transmit(&hcom_uart[COM1], reinterpret_cast<uint8_t*>(msg), len, 1000);
-    HAL_Delay(100);
+    if (static_cast<int32_t>(now - nextTuningTick) >= 0)
+    {
+        nextTuningTick = now + kTuningPeriodMs;
+        ReadTuningInputs();
+    }
+
+    if (static_cast<int32_t>(now - nextPrintTick) >= 0)
+    {
+        nextPrintTick = now + kPrintPeriodMs;
+        BSP_LED_Toggle(LED_GREEN);
+        PrintStatus();
+
+        if (!encoderHealthy)
+        {
+            ReportEncoderHealth();
+        }
+    }
 }
