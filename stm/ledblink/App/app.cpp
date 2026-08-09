@@ -82,17 +82,8 @@ static void ReportEncoderHealth()
     Print(msg);
 }
 
-void App_Init(TIM_HandleTypeDef* timer)
+void App_Init()
 {
-    pwmTimer = timer;
-    HAL_TIM_PWM_Start(pwmTimer, TIM_CHANNEL_1);
-
-    __HAL_TIM_SET_COMPARE(
-        pwmTimer,
-        TIM_CHANNEL_1,
-        500
-    );
-
     HAL_ADCEx_Calibration_Start(&hadc2, ADC_SINGLE_ENDED);
     HAL_ADCEx_Calibration_Start(&hadc5, ADC_SINGLE_ENDED);
 
