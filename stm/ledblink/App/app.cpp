@@ -31,18 +31,6 @@ constexpr int32_t kCountsPerRev = 4096;
  * Holding a motor command against a dead sensor is how things get broken. */
 constexpr uint32_t kMaxEncoderFailures = 10;
 
-/* --- Bring-up aid -------------------------------------------------------
- * Set true to take the encoder and the PID out of the loop entirely: the
- * setpoint pot then drives the motor directly, centre being stop and either
- * side ramping to full speed in that direction. It exists so motor, driver
- * and PWM wiring can be proven on their own, without a working encoder as a
- * precondition. Set it back to false for real closed-loop control. */
-constexpr bool kOpenLoopTest = false;
-
-/* Below this fraction the pot counts as centred, so a stationary knob near
- * the middle does not creep the motor. */
-constexpr float kOpenLoopDeadband = 0.05f;
-
 /* --- Gain ranges --------------------------------------------------------
  * Each pot sweeps its gain from zero to the value below. Error is normalised
  * to +/-1 over half a turn before it reaches the PID, so these are unitless
@@ -59,11 +47,8 @@ PositionController controller(kCountsPerRev);
 volatile bool armed = false;
 volatile bool encoderHealthy = false;
 
-uint16_t setpointCounts = 0;
-float gainKp = 0.0f;
-float gainKi = 0.0f;
-float gainKd = 0.0f;
-
+/* The target and the gains live in the controller, so nothing here shadows
+ * them; this is only the app's record of what the sensor and motor last did. */
 uint16_t measuredCounts = 0;
 float lastCommand = 0.0f;
 uint32_t encoderFailures = 0;
@@ -152,55 +137,15 @@ void ReadTuningInputs()
 
     /* The pot spans the same 0..4095 range as the encoder, so the setpoint
      * maps straight across without scaling. */
-    setpointCounts = static_cast<uint16_t>(setpointPot);
+    controller.SetTarget(static_cast<uint16_t>(setpointPot));
 
-    gainKp = (static_cast<float>(kpPot) / kAdcFullScale) * kMaxKp;
-    gainKi = (static_cast<float>(kiPot) / kAdcFullScale) * kMaxKi;
-    gainKd = (static_cast<float>(kdPot) / kAdcFullScale) * kMaxKd;
-
-    controller.SetTarget(setpointCounts);
-    controller.SetGains(gainKp, gainKi, gainKd);
-}
-
-/* Setpoint pot straight to motor command, no encoder involved. */
-void RunOpenLoopStep()
-{
-    if (!armed)
-    {
-        motor.Coast();
-        lastCommand = 0.0f;
-        return;
-    }
-
-    /* Remap 0..4095 to -1..+1 so the pot's centre is a stopped motor. */
-    float command = (static_cast<float>(setpointCounts) / (kAdcFullScale / 2.0f)) - 1.0f;
-
-    if (command > -kOpenLoopDeadband && command < kOpenLoopDeadband)
-    {
-        command = 0.0f;
-    }
-
-    lastCommand = command;
-    motor.SetCommand(command);
+    controller.SetGains((static_cast<float>(kpPot) / kAdcFullScale) * kMaxKp,
+                        (static_cast<float>(kiPot) / kAdcFullScale) * kMaxKi,
+                        (static_cast<float>(kdPot) / kAdcFullScale) * kMaxKd);
 }
 
 void RunControlStep(float dt)
 {
-    if (kOpenLoopTest)
-    {
-        /* Still read the encoder so the log shows position, but never let a
-         * failure stop the test. */
-        uint16_t probe = 0;
-        encoderHealthy = encoder.ReadAngle(probe);
-        if (encoderHealthy)
-        {
-            measuredCounts = probe;
-        }
-
-        RunOpenLoopStep();
-        return;
-    }
-
     uint16_t angleCounts = 0;
     if (!encoder.ReadAngle(angleCounts))
     {
@@ -245,12 +190,12 @@ void PrintStatus()
         msg, sizeof(msg),
         "%s SP:%4u POS:%4u CMD:%5d  Kp:%4lu Ki:%4lu Kd:%4lu%s\r\n",
         armed ? "RUN " : "STOP",
-        static_cast<unsigned>(setpointCounts),
+        static_cast<unsigned>(controller.Target()),
         static_cast<unsigned>(measuredCounts),
         static_cast<int>(lastCommand * 1000.0f),
-        static_cast<unsigned long>(gainKp * 1000.0f),
-        static_cast<unsigned long>(gainKi * 1000.0f),
-        static_cast<unsigned long>(gainKd * 1000.0f),
+        static_cast<unsigned long>(controller.Kp() * 1000.0f),
+        static_cast<unsigned long>(controller.Ki() * 1000.0f),
+        static_cast<unsigned long>(controller.Kd() * 1000.0f),
         encoderHealthy ? "" : "  ENC FAULT");
 
     HAL_UART_Transmit(&hcom_uart[COM1], reinterpret_cast<uint8_t*>(msg), len, 1000);
@@ -267,9 +212,8 @@ extern "C" void BSP_PB_Callback(Button_TypeDef Button)
         return;
     }
 
-    /* Refuse to arm against an encoder that is not reporting, unless the
-     * encoder is deliberately out of the loop for a wiring test. */
-    if (!armed && !encoderHealthy && !kOpenLoopTest)
+    /* Refuse to arm against an encoder that is not reporting. */
+    if (!armed && !encoderHealthy)
     {
         return;
     }
@@ -299,17 +243,9 @@ void App_Init()
         measuredCounts = angleCounts;
     }
 
-    if (kOpenLoopTest)
+    if (!encoderHealthy)
     {
-        Print("Mode: OPEN LOOP - setpoint pot drives the motor directly.\r\n");
-    }
-    else
-    {
-        Print("Mode: closed loop position control.\r\n");
-        if (!encoderHealthy)
-        {
-            Print("  encoder not reporting, so arming is blocked\r\n");
-        }
+        Print("Encoder not reporting, so arming is blocked.\r\n");
     }
 
     Print("Press the blue user button to arm/disarm the motor.\r\n");
