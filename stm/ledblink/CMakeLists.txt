@@ -38,7 +38,6 @@ add_executable(${CMAKE_PROJECT_NAME}
         App/app.cpp
         App/as5600.cpp
         App/motor.cpp
-        App/pid.cpp
         App/position_controller.cpp)
 
 # Add STM32CubeMX generated sources
