@@ -153,8 +153,8 @@ float PositionError(uint16_t setpoint, uint16_t measurement)
 
 void ReadTuningInputs()
 {
-    const uint32_t setpointPot = ReadAdcChannel(&hadc2, ADC_CHANNEL_4);  // PA7
-    const uint32_t kpPot       = ReadAdcChannel(&hadc2, ADC_CHANNEL_5);  // PC4
+    const uint32_t setpointPot = ReadAdcChannel(&hadc2, ADC_CHANNEL_5);  // PC4
+    const uint32_t kpPot       = ReadAdcChannel(&hadc2, ADC_CHANNEL_4);  // PA7
     const uint32_t kiPot       = ReadAdcChannel(&hadc5, ADC_CHANNEL_1);  // PA8
     const uint32_t kdPot       = ReadAdcChannel(&hadc5, ADC_CHANNEL_2);  // PA9
 
