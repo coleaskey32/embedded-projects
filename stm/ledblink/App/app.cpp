@@ -11,7 +11,7 @@ namespace
 
 /* --- Hardware map -------------------------------------------------------
  * TIM1_CH1 (PC0) is RPWM, TIM1_CH2 (PC1) is LPWM.
- * Pots: PA7 = setpoint, PC4 = Kp, PA8 = Ki, PA9 = Kd. */
+ * Pots: PC4 = setpoint, PA7 = Kp, PA8 = Ki, PA9 = Kd. */
 constexpr uint32_t kForwardChannel = TIM_CHANNEL_1;
 constexpr uint32_t kReverseChannel = TIM_CHANNEL_2;
 
@@ -31,6 +31,18 @@ constexpr float   kHalfRev      = kCountsPerRev / 2.0f;
 /* Consecutive failed encoder reads before the loop gives up and disarms.
  * Holding a motor command against a dead sensor is how things get broken. */
 constexpr uint32_t kMaxEncoderFailures = 10;
+
+/* --- Bring-up aid -------------------------------------------------------
+ * Set true to take the encoder and the PID out of the loop entirely: the
+ * setpoint pot then drives the motor directly, centre being stop and either
+ * side ramping to full speed in that direction. It exists so motor, driver
+ * and PWM wiring can be proven on their own, without a working encoder as a
+ * precondition. Set it back to false for real closed-loop control. */
+constexpr bool kOpenLoopTest = false;
+
+/* Below this fraction the pot counts as centred, so a stationary knob near
+ * the middle does not creep the motor. */
+constexpr float kOpenLoopDeadband = 0.05f;
 
 /* --- Gain ranges --------------------------------------------------------
  * Each pot sweeps its gain from zero to the value below. Error is normalised
@@ -169,8 +181,45 @@ void ReadTuningInputs()
     pid.SetGains(gainKp, gainKi, gainKd);
 }
 
+/* Setpoint pot straight to motor command, no encoder involved. */
+void RunOpenLoopStep()
+{
+    if (!armed)
+    {
+        motor.Coast();
+        lastCommand = 0.0f;
+        return;
+    }
+
+    /* Remap 0..4095 to -1..+1 so the pot's centre is a stopped motor. */
+    float command = (static_cast<float>(setpointCounts) / (kAdcFullScale / 2.0f)) - 1.0f;
+
+    if (command > -kOpenLoopDeadband && command < kOpenLoopDeadband)
+    {
+        command = 0.0f;
+    }
+
+    lastCommand = command;
+    motor.SetCommand(command);
+}
+
 void RunControlStep(float dt)
 {
+    if (kOpenLoopTest)
+    {
+        /* Still read the encoder so the log shows position, but never let a
+         * failure stop the test. */
+        uint16_t probe = 0;
+        encoderHealthy = encoder.ReadAngle(probe);
+        if (encoderHealthy)
+        {
+            measuredCounts = probe;
+        }
+
+        RunOpenLoopStep();
+        return;
+    }
+
     uint16_t angleCounts = 0;
     if (!encoder.ReadAngle(angleCounts))
     {
@@ -240,8 +289,9 @@ extern "C" void BSP_PB_Callback(Button_TypeDef Button)
         return;
     }
 
-    /* Refuse to arm against an encoder that is not reporting. */
-    if (!armed && !encoderHealthy)
+    /* Refuse to arm against an encoder that is not reporting, unless the
+     * encoder is deliberately out of the loop for a wiring test. */
+    if (!armed && !encoderHealthy && !kOpenLoopTest)
     {
         return;
     }
@@ -269,6 +319,19 @@ void App_Init()
     if (encoderHealthy)
     {
         measuredCounts = angleCounts;
+    }
+
+    if (kOpenLoopTest)
+    {
+        Print("Mode: OPEN LOOP - setpoint pot drives the motor directly.\r\n");
+    }
+    else
+    {
+        Print("Mode: closed loop position control.\r\n");
+        if (!encoderHealthy)
+        {
+            Print("  encoder not reporting, so arming is blocked\r\n");
+        }
     }
 
     Print("Press the blue user button to arm/disarm the motor.\r\n");
