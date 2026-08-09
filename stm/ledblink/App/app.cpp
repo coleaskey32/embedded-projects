@@ -1,7 +1,7 @@
 #include "app.h"
 #include "as5600.h"
 #include "motor.h"
-#include "pid.h"
+#include "position_controller.h"
 
 #include <cstdio>
 #include <cstring>
@@ -26,7 +26,6 @@ constexpr uint32_t kPrintPeriodMs   = 100;
 
 /* --- Encoder ------------------------------------------------------------ */
 constexpr int32_t kCountsPerRev = 4096;
-constexpr float   kHalfRev      = kCountsPerRev / 2.0f;
 
 /* Consecutive failed encoder reads before the loop gives up and disarms.
  * Holding a motor command against a dead sensor is how things get broken. */
@@ -54,7 +53,7 @@ constexpr float kMaxKd = 0.5f;
 
 MotorDriver motor(&htim1, kForwardChannel, kReverseChannel);
 AS5600 encoder(&hi2c1);
-Pid pid;
+PositionController controller(kCountsPerRev);
 
 /* Both are touched by the button ISR as well as the control loop. */
 volatile bool armed = false;
@@ -144,25 +143,6 @@ void ReportEncoderHealth()
     Print(msg);
 }
 
-/* Shortest signed distance from measurement to setpoint. Without the wrap the
- * controller would drive the long way round whenever the target sits across
- * the encoder's zero crossing. */
-float PositionError(uint16_t setpoint, uint16_t measurement)
-{
-    int32_t error = static_cast<int32_t>(setpoint) - static_cast<int32_t>(measurement);
-
-    if (error > kCountsPerRev / 2)
-    {
-        error -= kCountsPerRev;
-    }
-    else if (error < -kCountsPerRev / 2)
-    {
-        error += kCountsPerRev;
-    }
-
-    return static_cast<float>(error) / kHalfRev;
-}
-
 void ReadTuningInputs()
 {
     const uint32_t setpointPot = ReadAdcChannel(&hadc2, ADC_CHANNEL_5);  // PC4
@@ -178,7 +158,8 @@ void ReadTuningInputs()
     gainKi = (static_cast<float>(kiPot) / kAdcFullScale) * kMaxKi;
     gainKd = (static_cast<float>(kdPot) / kAdcFullScale) * kMaxKd;
 
-    pid.SetGains(gainKp, gainKi, gainKd);
+    controller.SetTarget(setpointCounts);
+    controller.SetGains(gainKp, gainKi, gainKd);
 }
 
 /* Setpoint pot straight to motor command, no encoder involved. */
@@ -233,7 +214,7 @@ void RunControlStep(float dt)
             encoderHealthy = false;
             armed = false;
             motor.Coast();
-            pid.Reset();
+            controller.Reset();
             lastCommand = 0.0f;
         }
         return;
@@ -246,15 +227,12 @@ void RunControlStep(float dt)
     if (!armed)
     {
         motor.Coast();
-        pid.Reset();
+        controller.Reset();
         lastCommand = 0.0f;
         return;
     }
 
-    const float error = PositionError(setpointCounts, measuredCounts);
-    const float measurement = static_cast<float>(measuredCounts) / kHalfRev;
-
-    lastCommand = pid.Update(error, measurement, dt);
+    lastCommand = controller.Update(measuredCounts, dt);
     motor.SetCommand(lastCommand);
 }
 
@@ -307,8 +285,8 @@ void App_Init()
     motor.Begin();
     motor.Coast();
 
-    pid.SetOutputLimits(-1.0f, 1.0f);
-    pid.Reset();
+    controller.SetOutputLimits(-1.0f, 1.0f);
+    controller.Reset();
 
     ReportEncoderHealth();
     ReadTuningInputs();

@@ -7,7 +7,7 @@ void Pid::Reset()
     hasHistory_ = false;
 }
 
-float Pid::Update(float error, float measurement, float dt)
+float Pid::UpdateWithError(float error, float measurement, float dt)
 {
     if (dt <= 0.0f)
     {
