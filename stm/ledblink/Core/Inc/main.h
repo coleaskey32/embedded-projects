@@ -47,12 +47,15 @@ extern "C" {
 extern ADC_HandleTypeDef hadc2;
 extern ADC_HandleTypeDef hadc5;
 extern I2C_HandleTypeDef hi2c1;
+extern TIM_HandleTypeDef htim1;
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
 
 /* USER CODE END EM */
+
+void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 
 /* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);
