@@ -2,7 +2,7 @@
 
 bool AS5600::IsPresent() const
 {
-    return HAL_I2C_IsDeviceReady(bus_, kDeviceAddress, 3, kTimeoutMs) == HAL_OK;
+    return HAL_I2C_IsDeviceReady(bus, kDeviceAddress, 3, kTimeoutMs) == HAL_OK;
 }
 
 uint8_t AS5600::ScanBus(uint8_t* found, uint8_t maxFound) const
@@ -12,7 +12,7 @@ uint8_t AS5600::ScanBus(uint8_t* found, uint8_t maxFound) const
     /* 7-bit addresses 0x08..0x77; the rest are reserved by the I2C spec. */
     for (uint8_t address = 0x08; address <= 0x77 && count < maxFound; ++address)
     {
-        if (HAL_I2C_IsDeviceReady(bus_, static_cast<uint16_t>(address << 1),
+        if (HAL_I2C_IsDeviceReady(bus, static_cast<uint16_t>(address << 1),
                                   1, 2) == HAL_OK)
         {
             found[count++] = address;
@@ -24,7 +24,7 @@ uint8_t AS5600::ScanBus(uint8_t* found, uint8_t maxFound) const
 
 bool AS5600::ReadRegister8(uint8_t reg, uint8_t& value) const
 {
-    return HAL_I2C_Mem_Read(bus_, kDeviceAddress, reg, I2C_MEMADD_SIZE_8BIT,
+    return HAL_I2C_Mem_Read(bus, kDeviceAddress, reg, I2C_MEMADD_SIZE_8BIT,
                             &value, 1, kTimeoutMs) == HAL_OK;
 }
 
@@ -33,7 +33,7 @@ bool AS5600::ReadRegister12(uint8_t reg, uint16_t& value) const
     /* The AS5600 auto-increments, so the high and low halves of a 12-bit
      * value come back in a single transaction. */
     uint8_t raw[2] = {};
-    if (HAL_I2C_Mem_Read(bus_, kDeviceAddress, reg, I2C_MEMADD_SIZE_8BIT,
+    if (HAL_I2C_Mem_Read(bus, kDeviceAddress, reg, I2C_MEMADD_SIZE_8BIT,
                          raw, 2, kTimeoutMs) != HAL_OK)
     {
         return false;
@@ -45,7 +45,7 @@ bool AS5600::ReadRegister12(uint8_t reg, uint16_t& value) const
 
 bool AS5600::WriteRegister8(uint8_t reg, uint8_t value) const
 {
-    return HAL_I2C_Mem_Write(bus_, kDeviceAddress, reg, I2C_MEMADD_SIZE_8BIT,
+    return HAL_I2C_Mem_Write(bus, kDeviceAddress, reg, I2C_MEMADD_SIZE_8BIT,
                              &value, 1, kTimeoutMs) == HAL_OK;
 }
 
@@ -56,7 +56,7 @@ bool AS5600::WriteRegister16(uint8_t reg, uint16_t value) const
         static_cast<uint8_t>(value & 0xFF),
     };
 
-    return HAL_I2C_Mem_Write(bus_, kDeviceAddress, reg, I2C_MEMADD_SIZE_8BIT,
+    return HAL_I2C_Mem_Write(bus, kDeviceAddress, reg, I2C_MEMADD_SIZE_8BIT,
                              raw, 2, kTimeoutMs) == HAL_OK;
 }
 

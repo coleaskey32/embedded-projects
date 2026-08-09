@@ -14,7 +14,7 @@ public:
     static constexpr uint8_t kMagnetTooWeak   = 0x10;
     static constexpr uint8_t kMagnetDetected  = 0x20;
 
-    explicit AS5600(I2C_HandleTypeDef* bus) : bus_(bus) {}
+    explicit AS5600(I2C_HandleTypeDef* bus) : bus(bus) {}
 
     /* Probes for an ACK without reading anything. */
     bool IsPresent() const;
@@ -67,5 +67,5 @@ private:
     static constexpr uint16_t kDeviceAddress = 0x36 << 1;
     static constexpr uint32_t kTimeoutMs     = 10;
 
-    I2C_HandleTypeDef* bus_;
+    I2C_HandleTypeDef* bus;
 };
